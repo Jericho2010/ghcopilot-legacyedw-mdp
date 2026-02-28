@@ -13,13 +13,21 @@ Use this guide to drive a legacy EDW migration with Lakebridge. It is organized 
   ```
 - Install transpilers (prompts for defaults/overrides): `databricks labs lakebridge install-transpile`.
 - Configure reconcile dependencies/warehouse (creates defaults if permitted): `databricks labs lakebridge configure-reconcile`. If warehouse creation is blocked, set `warehouse_id` in `~/.databrickscfg`.
+- Preflight checks:
+  ```bash
+  databricks auth profiles
+  databricks clusters list
+  databricks labs lakebridge describe-transpile
+  ```
 
 ## 1) Assessment (Pre-migration)
 Goal: inventory code and quantify migration effort/complexity.
 
 ### Profiler (source metadata & workload insights)
+> **Important:** Profiler is currently experimental and documented for **Synapse** in Lakebridge.
+
 1. Configure connection: `databricks labs lakebridge configure-database-profiler` (select `source-tech`, supply credentials).
-2. Run profiling: `databricks labs lakebridge execute-database-profiler --source-tech <synapse|...>`.
+2. Run profiling: `databricks labs lakebridge execute-database-profiler --source-tech synapse`.
 3. Outputs: profiler extract DB + summary report; optional dashboard:  
    ```bash
    databricks labs lakebridge create-profiler-dashboard \
@@ -56,10 +64,12 @@ Goal: convert SQL/ETL/orchestration to Databricks targets.
     --source-dialect <snowflake|oracle|mssql|datastage|ssis|...> \
     --target-technology <DBSQL|SparkSql|SDP|Databricks Workflow> \
     --transpiler-config-path <path/to/config.json> \
+    --overrides-file <path/to/overrides.json> \
     --error-file-path <path/errors.log> \
     --skip-validation <true|false> \
     --catalog-name <catalog> --schema-name <schema>
   ```
+- If install-time prompts were fully configured, `databricks labs lakebridge transpile` can run without additional flags.
 - Source-specific guides: see `docs/lakebridge/docs/transpile/source_systems` (SSIS, Redshift, DataStage).
 - Outputs: converted code in `--output-folder`, optional validation results, and error log if provided.
 
@@ -72,6 +82,7 @@ Goal: prove parity between source and Databricks.
 - Config file naming (placed under `~/.lakebridge`):  
   `recon_config_<DATA_SOURCE>_<CATALOG_OR_SCHEMA>_<REPORT_TYPE>.json`  
   `REPORT_TYPE` ∈ {schema, row, data, all}.
+- Reconcile source systems: `oracle`, `snowflake`, `mssql` (incl. synapse), `databricks`.
 
 ### Define reconciliation scope
 - ReconcileConfig (global): `data_source`, `report_type`, `secret_scope`, `database_config` (source/target catalogs & schemas), `metadata_config` (catalog/schema/volume for Lakebridge metadata).
@@ -99,6 +110,7 @@ Goal: prove parity between source and Databricks.
   print(result.recon_id)
   ```
 - Aggregated/automation path (batch many tables): create `table_configs` and `table_recon_summary` Delta tables in the Lakebridge metadata catalog/schema, then use the provided recon notebooks (`recon_wrapper_nb`, `lakebridge_recon_main`, `transformation_query_generator`).
+- Aggregate metric comparison is also available via `aggregates-reconcile` when you want metric-level parity checks.
 - Outputs: recon_id, metrics tables (schema/row/data mismatches), and an AI/BI dashboard deployed during install for drill-down.
 
 ## 4) Recommended Run Order for the Agent
@@ -112,11 +124,13 @@ Goal: prove parity between source and Databricks.
 ## Quick Command Reference
 - Install: `databricks labs install lakebridge --profile <profile>`
 - Transpiler deps: `databricks labs lakebridge install-transpile`
+- Transpiler discovery: `databricks labs lakebridge describe-transpile`
 - Profiler: `databricks labs lakebridge configure-database-profiler` → `execute-database-profiler --source-tech <tech>`
 - Analyzer: `databricks labs lakebridge analyze --source-directory <path> --report-file <file> --source-tech <tech> [--generate-json true]`
 - Transpile: `databricks labs lakebridge transpile --input-source <path> --output-folder <path> --source-dialect <dialect> ...`
 - Reconcile setup: `databricks labs lakebridge configure-reconcile`
 - Reconcile run (notebook): use `TriggerReconService.trigger_recon(...)` with TableRecon + ReconcileConfig
+- Aggregate reconcile: `databricks labs lakebridge aggregates-reconcile`
 - Profiler dashboard: `databricks labs lakebridge create-profiler-dashboard --extract-file <file> --source-tech <tech> --volume-path <uc volume>`
 
 ## Guardrails & Tips
@@ -125,3 +139,4 @@ Goal: prove parity between source and Databricks.
 - Keep `--error-file-path` when transpiling; use `--skip-validation false` to catch SQL issues early.
 - Name recon config files exactly per pattern (case-sensitive) and keep them under `.lakebridge`.
 - Always capture `recon_id` per run; use the installed dashboard to drill into mismatches.
+- For reconcile `transformations`, handle nulls explicitly (for example using `coalesce(..., '_null_recon_')`) and normalize timestamps to epoch/string for cross-platform parity.
