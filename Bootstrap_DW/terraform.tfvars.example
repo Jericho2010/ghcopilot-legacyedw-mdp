@@ -1,0 +1,23 @@
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+subscription_id = null
+
+project_name  = "legacyedw"
+location      = "eastus2"
+database_name = "AdventureWorksDW"
+
+sample_dataset    = "AdventureWorksDW2022"
+run_sample_import = true
+force_reimport    = false
+
+extra_firewall_rules = [
+  {
+    name     = "allow-my-ip"
+    start_ip = "203.0.113.10"
+    end_ip   = "203.0.113.10"
+  }
+]
+
+tags = {
+  environment = "dev"
+  owner       = "data-platform"
+}

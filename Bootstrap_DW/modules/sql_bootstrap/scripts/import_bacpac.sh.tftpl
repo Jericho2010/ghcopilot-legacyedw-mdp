@@ -1,0 +1,82 @@
+set -euo pipefail
+
+operation="${OPERATION:?OPERATION must be set}"
+resource_group_name="${RESOURCE_GROUP_NAME:?RESOURCE_GROUP_NAME must be set}"
+sql_server_name="${SQL_SERVER_NAME:?SQL_SERVER_NAME must be set}"
+database_name="${DATABASE_NAME:?DATABASE_NAME must be set}"
+
+if ! command -v az >/dev/null 2>&1; then
+  echo "Azure CLI is required for the sample import workflow." >&2
+  exit 1
+fi
+
+case "$operation" in
+  create)
+    location="${LOCATION:?LOCATION must be set}"
+    sql_admin_login="${SQL_ADMIN_LOGIN:?SQL_ADMIN_LOGIN must be set}"
+    sql_admin_password="${SQL_ADMIN_PASSWORD:?SQL_ADMIN_PASSWORD must be set}"
+    storage_uri="${STORAGE_URI:?STORAGE_URI must be set}"
+    storage_key="${STORAGE_KEY:?STORAGE_KEY must be set}"
+    sample_bacpac_uri="${SAMPLE_BACPAC_URI:?SAMPLE_BACPAC_URI must be set}"
+    db_edition="${DB_EDITION:?DB_EDITION must be set}"
+    db_service_objective="${DB_SERVICE_OBJECTIVE:?DB_SERVICE_OBJECTIVE must be set}"
+    db_max_size="${DB_MAX_SIZE:?DB_MAX_SIZE must be set}"
+    force_reimport="${FORCE_REIMPORT:-false}"
+
+    if az sql db show \
+      --resource-group "$resource_group_name" \
+      --server "$sql_server_name" \
+      --name "$database_name" >/dev/null 2>&1; then
+      if [[ "$force_reimport" != "true" ]]; then
+        echo "Database '$database_name' already exists. Skipping import."
+        exit 0
+      fi
+
+      echo "Database '$database_name' already exists. Deleting before re-import."
+      az sql db delete \
+        --resource-group "$resource_group_name" \
+        --server "$sql_server_name" \
+        --name "$database_name" \
+        --yes
+    fi
+
+    echo "Submitting Azure SQL import for '$database_name' from '$sample_bacpac_uri'."
+    az sql db import \
+      --resource-group "$resource_group_name" \
+      --server "$sql_server_name" \
+      --name "$database_name" \
+      --admin-user "$sql_admin_login" \
+      --admin-password "$sql_admin_password" \
+      --storage-key-type StorageAccessKey \
+      --storage-key "$storage_key" \
+      --storage-uri "$storage_uri" \
+      --edition "$db_edition" \
+      --service-objective "$db_service_objective" \
+      --max-size "$db_max_size" \
+      --no-wait
+
+    echo "Import submitted. Monitor with: az sql db op list --resource-group $resource_group_name --server $sql_server_name --database $database_name"
+    echo "Target region: $location"
+    ;;
+
+  destroy)
+    if az sql db show \
+      --resource-group "$resource_group_name" \
+      --server "$sql_server_name" \
+      --name "$database_name" >/dev/null 2>&1; then
+      echo "Deleting imported database '$database_name'."
+      az sql db delete \
+        --resource-group "$resource_group_name" \
+        --server "$sql_server_name" \
+        --name "$database_name" \
+        --yes
+    else
+      echo "Database '$database_name' not found. Nothing to delete."
+    fi
+    ;;
+
+  *)
+    echo "Unsupported operation: $operation" >&2
+    exit 1
+    ;;
+esac
